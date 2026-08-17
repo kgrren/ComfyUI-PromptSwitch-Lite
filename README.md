@@ -57,3 +57,10 @@ While the textarea itself has focus, plain `E` / `A` are treated as normal text 
 ## License
 
 MIT. This project is a clean, minimal implementation inspired by the interaction concept of Boba-svg/ComfyUI-PromptSwitch; it does not copy its large frontend implementation.
+
+
+## UI
+
+- ボタンは上部中央にまとめて表示します。
+- ON のチェックボックスは元の PromptSwitch と同じ `#0F0` の緑です。
+- 通常表示の文字は行高の中央に揃え、チェックボックスとの縦位置を合わせています。
