@@ -10,10 +10,17 @@ const UI = {
     sidePadding: 12,
     bottomPadding: 12,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 22.75,
     checkboxSize: 14,
     checkboxGap: 7,
-    rowGap: 4,
+    textareaPaddingLeft: 24,
+    textareaPaddingRight: 68,
+    weightButtonSize: 16,
+    weightButtonGap: 4,
+    weightStep: 0.1,
+    minWeight: -1.0,
+    maxWeight: 2.0,
+    separatorColor: "#777",
     buttonHeight: 24,
     buttonPaddingX: 9,
     buttonRadius: 5,
@@ -32,6 +39,14 @@ function isDisabledLine(line) {
     return line.trimStart().startsWith("//");
 }
 
+function isExplicitSeparatorLine(line) {
+    return /^\s*\/\/\s*,\s*\/\/\s*$/.test(line);
+}
+
+function isSeparatorLine(line) {
+    return !line.trim() || isExplicitSeparatorLine(line);
+}
+
 function disableLine(line) {
     if (!line.trim() || isDisabledLine(line)) return line;
     const leading = line.match(/^\s*/)?.[0] ?? "";
@@ -47,7 +62,7 @@ function enableLine(line) {
 
 function toggleLine(text, index) {
     const lines = normalizeNewlines(text).split("\n");
-    if (index < 0 || index >= lines.length || !lines[index].trim()) return text;
+    if (index < 0 || index >= lines.length || isSeparatorLine(lines[index])) return text;
     lines[index] = isDisabledLine(lines[index]) ? enableLine(lines[index]) : disableLine(lines[index]);
     return lines.join("\n");
 }
@@ -55,7 +70,7 @@ function toggleLine(text, index) {
 function disableAll(text) {
     return normalizeNewlines(text)
         .split("\n")
-        .map(disableLine)
+        .map((line) => (isSeparatorLine(line) ? line : disableLine(line)))
         .join("\n");
 }
 
@@ -74,6 +89,7 @@ function configureTextarea(widget) {
         fontFamily: UI.fontFamily,
         fontSize: `${UI.fontSize}px`,
         lineHeight: `${UI.lineHeight}px`,
+        padding: `2.5px ${UI.textareaPaddingRight}px 0 ${UI.textareaPaddingLeft}px`,
         whiteSpace: "pre-wrap",
         overflowWrap: "anywhere",
         wordBreak: "break-word",
@@ -82,18 +98,13 @@ function configureTextarea(widget) {
     });
 }
 
-function setEditMode(node, widget, enabled, { focus = true } = {}) {
+function setEditMode(node, widget, enabled) {
     node.pslEditMode = Boolean(enabled);
     widget.hidden = !node.pslEditMode;
 
     if (node.pslEditMode) {
         configureTextarea(widget);
-        requestAnimationFrame(() => {
-            configureTextarea(widget);
-            if (focus && widget.inputEl) {
-                widget.inputEl.focus();
-            }
-        });
+        requestAnimationFrame(() => configureTextarea(widget));
     }
 
     node.setDirtyCanvas?.(true, true);
@@ -109,9 +120,8 @@ function measureButton(ctx, label) {
 
 function drawButton(ctx, x, y, w, h, label, active = false) {
     ctx.save();
-    const radius = UI.buttonRadius;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, radius);
+    ctx.roundRect(x, y, w, h, UI.buttonRadius);
     ctx.fillStyle = active ? "#4b78c2" : "#353535";
     ctx.fill();
     ctx.strokeStyle = active ? "#7aa7ef" : "#555";
@@ -145,73 +155,247 @@ function wrapText(ctx, text, maxWidth) {
     return lines;
 }
 
+function stripOuterWeight(text) {
+    let processed = text.trim();
+    let trailingComma = "";
+
+    if (processed.endsWith(",")) {
+        trailingComma = ",";
+        processed = processed.slice(0, -1).trimEnd();
+    }
+
+    const weighted = processed.match(/^\s*\((.*)\s*:\s*([\d.\-]+)\s*\)\s*$/);
+    if (weighted) {
+        const weight = Number.parseFloat(weighted[2]);
+        if (Number.isFinite(weight)) {
+            return {
+                body: weighted[1].trim(),
+                weight,
+                trailingComma,
+            };
+        }
+    }
+
+    const parenthesized = processed.match(/^\s*\((.*)\)\s*$/);
+    if (parenthesized) processed = parenthesized[1].trim();
+
+    return {
+        body: processed,
+        weight: 1.0,
+        trailingComma,
+    };
+}
+
+function parsePromptLine(line) {
+    const disabled = isDisabledLine(line);
+    let working = disabled ? enableLine(line).trimStart() : line.trimStart();
+
+    const internalCommentIndex = working.indexOf("//");
+    let promptPart = working;
+    let commentPart = "";
+    if (internalCommentIndex !== -1) {
+        promptPart = working.slice(0, internalCommentIndex).trimEnd();
+        commentPart = working.slice(internalCommentIndex);
+    }
+
+    const parsed = stripOuterWeight(promptPart);
+    const promptText = `${parsed.body}${parsed.trailingComma}`;
+    const displayText = commentPart ? `${promptText} ${commentPart}` : promptText;
+
+    return {
+        disabled,
+        weight: parsed.weight,
+        displayText,
+    };
+}
+
+function adjustWeight(text, lineIndex, delta) {
+    const lines = normalizeNewlines(text).split("\n");
+    if (lineIndex < 0 || lineIndex >= lines.length || isSeparatorLine(lines[lineIndex])) return text;
+
+    const original = lines[lineIndex];
+    const leading = original.match(/^\s*/)?.[0] ?? "";
+    let working = original.slice(leading.length);
+    let disabledPrefix = "";
+
+    if (working.startsWith("//")) {
+        const match = working.match(/^\/\/\s*/);
+        disabledPrefix = match?.[0] ?? "// ";
+        working = working.slice(disabledPrefix.length);
+    }
+
+    const internalCommentIndex = working.indexOf("//");
+    let promptPart = working;
+    let commentPart = "";
+    if (internalCommentIndex !== -1) {
+        promptPart = working.slice(0, internalCommentIndex).trimEnd();
+        commentPart = working.slice(internalCommentIndex);
+    }
+
+    if (!promptPart.trim()) return text;
+
+    const parsed = stripOuterWeight(promptPart);
+    const nextWeight = Math.round(
+        Math.min(UI.maxWeight, Math.max(UI.minWeight, parsed.weight + delta)) * 100,
+    ) / 100;
+
+    const weightedPrompt = Math.abs(nextWeight - 1.0) < 0.0001
+        ? `${parsed.body}${parsed.trailingComma}`
+        : `(${parsed.body}:${nextWeight.toFixed(2)})${parsed.trailingComma}`;
+
+    const commentSuffix = commentPart ? `${commentPart.startsWith(" ") ? "" : " "}${commentPart}` : "";
+    lines[lineIndex] = `${leading}${disabledPrefix}${weightedPrompt}${commentSuffix}`;
+    return lines.join("\n");
+}
+
+function getTextWrapWidth(node) {
+    // Match the textarea's effective text width so wrapping occurs at the same point.
+    return Math.max(40, node.size[0] - UI.textareaPaddingLeft - UI.textareaPaddingRight);
+}
+
 function layoutRows(node, ctx, text) {
     const lines = normalizeNewlines(text).split("\n");
     const rows = [];
-    const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
-    const maxTextWidth = Math.max(40, node.size[0] - textX - UI.sidePadding);
+    const maxTextWidth = getTextWrapWidth(node);
     let y = UI.contentTop;
 
     ctx.save();
     ctx.font = `${UI.fontSize}px ${UI.fontFamily}`;
 
     lines.forEach((line, index) => {
-        if (!line.trim()) {
-            rows.push({ index, line, empty: true, y, height: UI.lineHeight });
+        if (isSeparatorLine(line)) {
+            rows.push({ index, line, separator: true, y, height: UI.lineHeight });
             y += UI.lineHeight;
             return;
         }
 
-        const displayText = isDisabledLine(line) ? enableLine(line).trimStart() : line.trimStart();
-        const wrapped = wrapText(ctx, displayText, maxTextWidth);
+        const parsed = parsePromptLine(line);
+        const wrapped = wrapText(ctx, parsed.displayText, maxTextWidth);
         const height = Math.max(UI.lineHeight, wrapped.length * UI.lineHeight);
-        rows.push({ index, line, empty: false, displayText, wrapped, y, height });
-        y += height + UI.rowGap;
+        rows.push({
+            index,
+            line,
+            separator: false,
+            ...parsed,
+            wrapped,
+            y,
+            height,
+        });
+        y += height;
     });
 
     ctx.restore();
     return { rows, totalHeight: y + UI.bottomPadding };
 }
 
+function drawCheckbox(ctx, x, y, checked) {
+    ctx.save();
+    ctx.strokeStyle = checked ? "#0F0" : "#777";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, UI.checkboxSize, UI.checkboxSize);
+
+    if (checked) {
+        ctx.beginPath();
+        ctx.moveTo(x + 3, y + 7);
+        ctx.lineTo(x + 6, y + 10);
+        ctx.lineTo(x + 12, y + 3);
+        ctx.strokeStyle = "#0F0";
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawSeparator(ctx, node, row) {
+    const centerY = row.y + UI.lineHeight / 2;
+    ctx.save();
+    ctx.strokeStyle = UI.separatorColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(UI.sidePadding, centerY);
+    ctx.lineTo(node.size[0] - UI.sidePadding, centerY);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawWeightButton(ctx, x, y, label) {
+    const buttonY = y + (UI.lineHeight - UI.weightButtonSize) / 2;
+    ctx.save();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(x, buttonY, UI.weightButtonSize, UI.weightButtonSize);
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, buttonY + 0.5, UI.weightButtonSize - 1, UI.weightButtonSize - 1);
+    ctx.font = `${UI.fontSize}px ${UI.fontFamily}`;
+    ctx.fillStyle = "#fff";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x + UI.weightButtonSize / 2, buttonY + UI.weightButtonSize / 2 + 0.25);
+    ctx.restore();
+}
+
+function drawWeightControls(node, ctx, row) {
+    const plusX = node.size[0] - UI.sidePadding - UI.weightButtonSize;
+    const minusX = plusX - UI.weightButtonGap - UI.weightButtonSize;
+
+    drawWeightButton(ctx, minusX, row.y, "-");
+    drawWeightButton(ctx, plusX, row.y, "+");
+
+    node.pslWeightAreas.push({
+        type: "decrease",
+        lineIndex: row.index,
+        x: minusX,
+        y: row.y,
+        w: UI.weightButtonSize,
+        h: UI.lineHeight,
+    });
+    node.pslWeightAreas.push({
+        type: "increase",
+        lineIndex: row.index,
+        x: plusX,
+        y: row.y,
+        w: UI.weightButtonSize,
+        h: UI.lineHeight,
+    });
+
+    if (Math.abs(row.weight - 1.0) > 0.0001) {
+        const label = row.weight.toFixed(2);
+        ctx.save();
+        ctx.font = `${UI.fontSize}px ${UI.fontFamily}`;
+        ctx.fillStyle = row.disabled ? "#888" : "#ddd";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, minusX - 6, row.y + UI.lineHeight / 2);
+        ctx.restore();
+    }
+}
+
 function drawNormalMode(node, ctx, widget) {
     const { rows, totalHeight } = layoutRows(node, ctx, widget.value);
     node.pslRows = rows;
+    node.pslWeightAreas = [];
 
     ctx.save();
     ctx.font = `${UI.fontSize}px ${UI.fontFamily}`;
     ctx.textBaseline = "middle";
 
     for (const row of rows) {
-        if (row.empty) continue;
-
-        const disabled = isDisabledLine(row.line);
-        const boxY = row.y + Math.max(0, (UI.lineHeight - UI.checkboxSize) / 2);
-        const boxX = UI.sidePadding;
-
-        if (!disabled) {
-            // Original PromptSwitch uses #0F0 for the active checkbox accent.
-            ctx.strokeStyle = "#0F0";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(boxX, boxY, UI.checkboxSize, UI.checkboxSize);
-
-            ctx.beginPath();
-            ctx.moveTo(boxX + 3, boxY + 7);
-            ctx.lineTo(boxX + 6, boxY + 10);
-            ctx.lineTo(boxX + 12, boxY + 3);
-            ctx.strokeStyle = "#0F0";
-            ctx.lineWidth = 1.8;
-            ctx.stroke();
-        } else {
-            ctx.strokeStyle = "#777";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(boxX, boxY, UI.checkboxSize, UI.checkboxSize);
+        if (row.separator) {
+            drawSeparator(ctx, node, row);
+            continue;
         }
 
-        ctx.fillStyle = disabled ? "#888" : "#f1f1f1";
+        const boxY = row.y + (UI.lineHeight - UI.checkboxSize) / 2;
+        const boxX = UI.sidePadding;
+        drawCheckbox(ctx, boxX, boxY, !row.disabled);
+
+        ctx.fillStyle = row.disabled ? "#888" : "#f1f1f1";
         const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
         row.wrapped.forEach((part, i) => {
             ctx.fillText(part, textX, row.y + i * UI.lineHeight + UI.lineHeight / 2);
         });
+
+        drawWeightControls(node, ctx, row);
     }
 
     ctx.restore();
@@ -262,7 +446,16 @@ function handleNodeClick(node, pos, widget) {
     }
 
     if (!node.pslEditMode) {
-        const row = node.pslRows?.find((item) => !item.empty && y >= item.y && y <= item.y + item.height);
+        const weightArea = node.pslWeightAreas?.find((area) => pointInRect(x, y, area));
+        if (weightArea) {
+            const delta = weightArea.type === "increase" ? UI.weightStep : -UI.weightStep;
+            commitWidget(node, widget, adjustWeight(widget.value, weightArea.lineIndex, delta));
+            return true;
+        }
+
+        const row = node.pslRows?.find(
+            (item) => !item.separator && y >= item.y && y <= item.y + item.height,
+        );
         if (row) {
             commitWidget(node, widget, toggleLine(widget.value, row.index));
             return true;
@@ -295,6 +488,7 @@ app.registerExtension({
             this.pslEditMode = false;
             this.pslRows = [];
             this.pslButtons = {};
+            this.pslWeightAreas = [];
 
             widget.hidden = true;
             widget.y = UI.contentTop;
@@ -323,7 +517,7 @@ app.registerExtension({
             const originalKeyDown = this.onKeyDown;
             this.onKeyDown = function (event) {
                 // Do not steal ordinary letters while the textarea is being edited.
-                // The toolbar remains available for leaving edit mode.
+                // Edit-mode switching itself never focuses the textarea automatically.
                 if (!isTextEntryTarget(event)) {
                     if (event.key === "e" || event.key === "E") {
                         setEditMode(this, widget, !this.pslEditMode);
