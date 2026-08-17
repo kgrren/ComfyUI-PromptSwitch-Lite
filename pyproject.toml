@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-promptswitch-lite"
+version = "0.1.0"
+description = "Minimal line-toggle prompt editor custom node for ComfyUI"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[project.urls]
+Repository = "https://github.com/your-name/ComfyUI-PromptSwitch-Lite"
+
+[tool.comfy]
+PublisherId = "your-name"
+DisplayName = "Prompt Switch Lite"
+Icon = ""
