@@ -1,9 +1,6 @@
-# nodes.py
+class PromptSwitchLite:
+    """A minimal line-toggle prompt editor for ComfyUI."""
 
-import os
-
-
-class PromptSwitch:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -13,8 +10,9 @@ class PromptSwitch:
                     {
                         "default": "",
                         "multiline": True,
+                        "dynamicPrompts": True,
                     },
-                ),
+                )
             },
             "optional": {
                 "prefix": (
@@ -22,53 +20,48 @@ class PromptSwitch:
                     {
                         "forceInput": True,
                     },
-                ),
+                )
             },
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text",)
-    FUNCTION = "process"
-    CATEGORY = "utils"
+    FUNCTION = "render"
+    CATEGORY = "utils/text"
 
-    def process(self, text, prefix=None):
-        lines = []
+    def render(self, text, prefix=None):
+        # UI state is serialized into the text itself: lines beginning with // are OFF.
+        # Empty lines are ignored in the output, but preserved in the editor widget.
+        enabled_lines = []
 
-        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            stripped = line.strip()
-
+        for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            stripped = raw_line.strip()
             if not stripped:
                 continue
-
-            if stripped.startswith("//"):
+            if raw_line.lstrip().startswith("//"):
                 continue
+            enabled_lines.append(stripped)
 
-            lines.append(line)
+        current_text = "\n".join(enabled_lines)
 
-        current_text = "\n".join(lines)
+        # Allow Prompt Switch Lite nodes to be chained through the optional prefix input.
+        # Prefix is placed before this node's enabled prompt lines.
+        prefix_text = (prefix or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 
-        parts = []
+        if prefix_text and current_text:
+            result = f"{prefix_text}\n{current_text}"
+        elif prefix_text:
+            result = prefix_text
+        else:
+            result = current_text
 
-        if prefix is not None:
-            prefix = str(prefix).strip()
-            if prefix:
-                parts.append(prefix)
-
-        if current_text:
-            parts.append(current_text)
-
-        return ("\n".join(parts),)
+        return (result,)
 
 
 NODE_CLASS_MAPPINGS = {
-    "PromptSwitch": PromptSwitch,
+    "PromptSwitchLite": PromptSwitchLite,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptSwitch": "Prompt Switch",
+    "PromptSwitchLite": "Prompt Switch Lite",
 }
-
-WEB_DIRECTORY = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)),
-    "web",
-)
