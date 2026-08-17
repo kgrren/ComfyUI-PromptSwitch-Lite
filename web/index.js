@@ -89,7 +89,7 @@ function configureTextarea(widget) {
         fontFamily: UI.fontFamily,
         fontSize: `${UI.fontSize}px`,
         lineHeight: `${UI.lineHeight}px`,
-        padding: `2.5px ${UI.textareaPaddingRight}px 0 ${UI.textareaPaddingLeft}px`,
+        padding: `3.5px ${UI.textareaPaddingRight}px 0 ${UI.textareaPaddingLeft}px`,
         whiteSpace: "pre-wrap",
         overflowWrap: "anywhere",
         wordBreak: "break-word",
