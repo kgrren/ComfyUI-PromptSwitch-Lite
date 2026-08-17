@@ -1,6 +1,9 @@
-class PromptSwitchLite:
-    """A minimal line-toggle prompt editor for ComfyUI."""
+# nodes.py
 
+import os
+
+
+class PromptSwitch:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -10,37 +13,62 @@ class PromptSwitchLite:
                     {
                         "default": "",
                         "multiline": True,
-                        "dynamicPrompts": True,
                     },
-                )
-            }
+                ),
+            },
+            "optional": {
+                "prefix": (
+                    "STRING",
+                    {
+                        "forceInput": True,
+                    },
+                ),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text",)
-    FUNCTION = "render"
-    CATEGORY = "utils/text"
+    FUNCTION = "process"
+    CATEGORY = "utils"
 
-    def render(self, text):
-        # UI state is serialized into the text itself: lines beginning with // are OFF.
-        # Empty lines are ignored in the output, but preserved in the editor widget.
-        enabled_lines = []
+    def process(self, text, prefix=None):
+        lines = []
 
-        for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            stripped = raw_line.strip()
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            stripped = line.strip()
+
             if not stripped:
                 continue
-            if raw_line.lstrip().startswith("//"):
-                continue
-            enabled_lines.append(raw_line.strip())
 
-        return ("\n".join(enabled_lines),)
+            if stripped.startswith("//"):
+                continue
+
+            lines.append(line)
+
+        current_text = "\n".join(lines)
+
+        parts = []
+
+        if prefix is not None:
+            prefix = str(prefix).strip()
+            if prefix:
+                parts.append(prefix)
+
+        if current_text:
+            parts.append(current_text)
+
+        return ("\n".join(parts),)
 
 
 NODE_CLASS_MAPPINGS = {
-    "PromptSwitchLite": PromptSwitchLite,
+    "PromptSwitch": PromptSwitch,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptSwitchLite": "Prompt Switch Lite",
+    "PromptSwitch": "Prompt Switch",
 }
+
+WEB_DIRECTORY = os.path.join(
+    os.path.dirname(os.path.realpath(__file__)),
+    "web",
+)
