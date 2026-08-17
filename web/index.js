@@ -179,7 +179,7 @@ function drawNormalMode(node, ctx, widget) {
 
     ctx.save();
     ctx.font = `${UI.fontSize}px ${UI.fontFamily}`;
-    ctx.textBaseline = "top";
+    ctx.textBaseline = "middle";
 
     for (const row of rows) {
         if (row.empty) continue;
@@ -188,24 +188,29 @@ function drawNormalMode(node, ctx, widget) {
         const boxY = row.y + Math.max(0, (UI.lineHeight - UI.checkboxSize) / 2);
         const boxX = UI.sidePadding;
 
-        ctx.strokeStyle = disabled ? "#777" : "#aaa";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(boxX, boxY, UI.checkboxSize, UI.checkboxSize);
-
         if (!disabled) {
+            // Original PromptSwitch uses #0F0 for the active checkbox accent.
+            ctx.strokeStyle = "#0F0";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX, boxY, UI.checkboxSize, UI.checkboxSize);
+
             ctx.beginPath();
             ctx.moveTo(boxX + 3, boxY + 7);
             ctx.lineTo(boxX + 6, boxY + 10);
             ctx.lineTo(boxX + 12, boxY + 3);
-            ctx.strokeStyle = "#e9e9e9";
-            ctx.lineWidth = 1.7;
+            ctx.strokeStyle = "#0F0";
+            ctx.lineWidth = 1.8;
             ctx.stroke();
+        } else {
+            ctx.strokeStyle = "#777";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX, boxY, UI.checkboxSize, UI.checkboxSize);
         }
 
         ctx.fillStyle = disabled ? "#888" : "#f1f1f1";
         const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
         row.wrapped.forEach((part, i) => {
-            ctx.fillText(part, textX, row.y + i * UI.lineHeight);
+            ctx.fillText(part, textX, row.y + i * UI.lineHeight + UI.lineHeight / 2);
         });
     }
 
@@ -220,20 +225,23 @@ function drawNormalMode(node, ctx, widget) {
 function drawToolbar(node, ctx) {
     const y = 5;
     const h = UI.buttonHeight;
-    const editLabel = node.pslEditMode ? "表示 E" : "編集 E";
-    const offLabel = "全部OFF A";
+    const editLabel = node.pslEditMode ? "表示 (E)" : "編集 (E)";
+    const offLabel = "全部OFF (A)";
     const editW = measureButton(ctx, editLabel);
     const offW = measureButton(ctx, offLabel);
-    const leftX = UI.sidePadding;
-    const rightX = node.size[0] - UI.sidePadding - offW;
+    const gap = 8;
+    const groupWidth = editW + gap + offW;
+    const startX = Math.max(UI.sidePadding, (node.size[0] - groupWidth) / 2);
+    const editX = startX;
+    const offX = startX + editW + gap;
 
     node.pslButtons = {
-        edit: { x: leftX, y, w: editW, h },
-        off: { x: rightX, y, w: offW, h },
+        edit: { x: editX, y, w: editW, h },
+        off: { x: offX, y, w: offW, h },
     };
 
-    drawButton(ctx, leftX, y, editW, h, editLabel, node.pslEditMode);
-    drawButton(ctx, rightX, y, offW, h, offLabel, false);
+    drawButton(ctx, editX, y, editW, h, editLabel, node.pslEditMode);
+    drawButton(ctx, offX, y, offW, h, offLabel, false);
 }
 
 function pointInRect(x, y, rect) {
