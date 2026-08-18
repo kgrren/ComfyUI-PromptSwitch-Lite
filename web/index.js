@@ -94,8 +94,46 @@ function configureTextarea(widget) {
         overflowWrap: "anywhere",
         wordBreak: "break-word",
         resize: "none",
+        overflowY: "hidden",
         boxSizing: "border-box",
     });
+}
+
+function fitTextareaToContent(node, widget) {
+    const el = widget?.inputEl;
+    if (!el || !node?.pslEditMode || node.pslAutoFitting) return;
+
+    node.pslAutoFitting = true;
+    try {
+        configureTextarea(widget);
+
+        // Reset first so scrollHeight can shrink as well as grow.
+        el.style.height = "auto";
+        const textareaHeight = Math.max(60, Math.ceil(el.scrollHeight));
+        el.style.height = `${textareaHeight}px`;
+
+        widget.y = UI.contentTop;
+        widget.options ??= {};
+        widget.options.minHeight = textareaHeight;
+
+        const desiredNodeHeight = Math.max(
+            UI.minHeight,
+            UI.contentTop + textareaHeight + UI.bottomPadding,
+        );
+
+        if (Math.abs(node.size[1] - desiredNodeHeight) > 0.5) {
+            if (typeof node.setSize === "function") {
+                node.setSize([node.size[0], desiredNodeHeight]);
+            } else {
+                node.size[1] = desiredNodeHeight;
+            }
+        }
+
+        node.setDirtyCanvas?.(true, true);
+        app.graph?.setDirtyCanvas?.(true, true);
+    } finally {
+        node.pslAutoFitting = false;
+    }
 }
 
 function setEditMode(node, widget, enabled) {
@@ -104,7 +142,7 @@ function setEditMode(node, widget, enabled) {
 
     if (node.pslEditMode) {
         configureTextarea(widget);
-        requestAnimationFrame(() => configureTextarea(widget));
+        requestAnimationFrame(() => fitTextareaToContent(node, widget));
     }
 
     node.setDirtyCanvas?.(true, true);
@@ -496,6 +534,10 @@ app.registerExtension({
             widget.options.minHeight = Math.max(60, this.size[1] - UI.contentTop - UI.bottomPadding);
             configureTextarea(widget);
 
+            const textareaEl = widget.inputEl;
+            const fitOnInput = () => fitTextareaToContent(this, widget);
+            textareaEl?.addEventListener("input", fitOnInput);
+
             const originalDraw = this.onDrawForeground;
             this.onDrawForeground = function (ctx) {
                 originalDraw?.call(this, ctx);
@@ -545,6 +587,15 @@ app.registerExtension({
                 widget.y = UI.contentTop;
                 widget.options.minHeight = Math.max(60, this.size[1] - UI.contentTop - UI.bottomPadding);
                 configureTextarea(widget);
+                if (this.pslEditMode && !this.pslAutoFitting) {
+                    requestAnimationFrame(() => fitTextareaToContent(this, widget));
+                }
+            };
+
+            const originalRemoved = this.onRemoved;
+            this.onRemoved = function () {
+                textareaEl?.removeEventListener("input", fitOnInput);
+                return originalRemoved?.apply(this, arguments);
             };
 
             requestAnimationFrame(() => {
