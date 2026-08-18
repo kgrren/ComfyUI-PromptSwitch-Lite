@@ -14,7 +14,8 @@ const UI = {
     checkboxSize: 14,
     checkboxGap: 7,
     textareaPaddingLeft: 24,
-    textareaPaddingRight: 96,
+    textareaPaddingRight: 68,
+    normalModeRightReserve: 96,
     weightButtonSize: 16,
     weightButtonGap: 4,
     weightStep: 0.1,
@@ -287,12 +288,10 @@ function adjustWeight(text, lineIndex, delta) {
 }
 
 function getTextWrapWidth(node) {
-    // Keep the normal-mode right edge aligned with the textarea's text area.
-    // Normal-mode text starts after the checkbox, so subtract that actual x position
-    // rather than textareaPaddingLeft. The reserved right side includes the weight
-    // label plus the +/- buttons.
+    // Reserve enough room in normal mode for the weight label and +/- buttons.
+    // Editing mode intentionally uses a smaller right padding for a wider text area.
     const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
-    return Math.max(40, node.size[0] - textX - UI.textareaPaddingRight);
+    return Math.max(40, node.size[0] - textX - UI.normalModeRightReserve);
 }
 
 function layoutRows(node, ctx, text) {
