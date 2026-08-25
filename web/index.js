@@ -313,6 +313,19 @@ function layoutRows(node, ctx, text) {
         const parsed = parsePromptLine(line);
         const wrapped = wrapText(ctx, parsed.displayText, maxTextWidth);
         const height = Math.max(UI.lineHeight, wrapped.length * UI.lineHeight);
+        const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
+        const widestText = wrapped.reduce(
+            (max, part) => Math.max(max, ctx.measureText(part).width),
+            0,
+        );
+        const clickLeft = UI.sidePadding;
+        const clickRight = Math.min(
+            node.size[0] - UI.normalModeRightReserve,
+            Math.max(
+                UI.sidePadding + UI.checkboxSize,
+                textX + widestText + 6,
+            ),
+        );
         rows.push({
             index,
             line,
@@ -321,6 +334,8 @@ function layoutRows(node, ctx, text) {
             wrapped,
             y,
             height,
+            clickX: clickLeft,
+            clickWidth: Math.max(UI.checkboxSize, clickRight - clickLeft),
         });
         y += height;
     });
@@ -494,8 +509,12 @@ function handleNodeClick(node, pos, widget) {
             return true;
         }
 
-        const row = node.pslRows?.find(
-            (item) => !item.separator && y >= item.y && y <= item.y + item.height,
+        const row = node.pslRows?.find((item) =>
+            !item.separator
+            && x >= item.clickX
+            && x <= item.clickX + item.clickWidth
+            && y >= item.y
+            && y <= item.y + item.height
         );
         if (row) {
             commitWidget(node, widget, toggleLine(widget.value, row.index));
