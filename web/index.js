@@ -97,10 +97,12 @@ function configureTextarea(widget) {
         resize: "none",
         overflowY: "hidden",
         boxSizing: "border-box",
+        fieldSizing: "content",
+        minHeight: "60px",
     });
 }
 
-function fitTextareaToContent(node, widget) {
+function syncNodeHeightToTextarea(node, widget) {
     const el = widget?.inputEl;
     if (!el || !node?.pslEditMode || node.pslAutoFitting) return;
 
@@ -108,14 +110,19 @@ function fitTextareaToContent(node, widget) {
     try {
         configureTextarea(widget);
 
-        // Reset first so scrollHeight can shrink as well as grow.
-        el.style.height = "auto";
-        const textareaHeight = Math.max(60, Math.ceil(el.scrollHeight));
-        el.style.height = `${textareaHeight}px`;
+        // field-sizing: content handles the textarea height in modern browsers.
+        // Keep a scrollHeight fallback only for browsers without field-sizing support.
+        if (!CSS.supports?.("field-sizing", "content")) {
+            el.style.height = "auto";
+            el.style.height = `${Math.max(60, Math.ceil(el.scrollHeight))}px`;
+        } else {
+            el.style.height = "auto";
+        }
 
+        const textareaHeight = Math.max(60, Math.ceil(el.getBoundingClientRect().height));
         widget.y = UI.contentTop;
         widget.options ??= {};
-        widget.options.minHeight = textareaHeight;
+        widget.options.minHeight = 60;
 
         const desiredNodeHeight = Math.max(
             UI.minHeight,
@@ -143,7 +150,7 @@ function setEditMode(node, widget, enabled) {
 
     if (node.pslEditMode) {
         configureTextarea(widget);
-        requestAnimationFrame(() => fitTextareaToContent(node, widget));
+        requestAnimationFrame(() => syncNodeHeightToTextarea(node, widget));
     }
 
     node.setDirtyCanvas?.(true, true);
@@ -314,18 +321,11 @@ function layoutRows(node, ctx, text) {
         const wrapped = wrapText(ctx, parsed.displayText, maxTextWidth);
         const height = Math.max(UI.lineHeight, wrapped.length * UI.lineHeight);
         const textX = UI.sidePadding + UI.checkboxSize + UI.checkboxGap;
-        const widestText = wrapped.reduce(
-            (max, part) => Math.max(max, ctx.measureText(part).width),
-            0,
-        );
         const clickLeft = UI.sidePadding;
-        const clickRight = Math.min(
-            node.size[0] - UI.normalModeRightReserve,
-            Math.max(
-                UI.sidePadding + UI.checkboxSize,
-                textX + widestText + 6,
-            ),
-        );
+        // Keep only the outer-left gutter free for node selection/dragging.
+        // From the checkbox through the empty space before the weight controls,
+        // the whole row remains a prompt toggle target.
+        const clickRight = node.size[0] - UI.normalModeRightReserve;
         rows.push({
             index,
             line,
@@ -557,8 +557,10 @@ app.registerExtension({
             configureTextarea(widget);
 
             const textareaEl = widget.inputEl;
-            const fitOnInput = () => fitTextareaToContent(this, widget);
-            textareaEl?.addEventListener("input", fitOnInput);
+            const textareaResizeObserver = textareaEl && typeof ResizeObserver !== "undefined"
+                ? new ResizeObserver(() => syncNodeHeightToTextarea(this, widget))
+                : null;
+            textareaResizeObserver?.observe(textareaEl);
 
             const originalDraw = this.onDrawForeground;
             this.onDrawForeground = function (ctx) {
@@ -607,16 +609,18 @@ app.registerExtension({
                 this.size[0] = Math.max(this.size[0], UI.minWidth);
                 this.size[1] = Math.max(this.size[1], UI.minHeight);
                 widget.y = UI.contentTop;
-                widget.options.minHeight = Math.max(60, this.size[1] - UI.contentTop - UI.bottomPadding);
+                widget.options.minHeight = this.pslEditMode
+                    ? 60
+                    : Math.max(60, this.size[1] - UI.contentTop - UI.bottomPadding);
                 configureTextarea(widget);
                 if (this.pslEditMode && !this.pslAutoFitting) {
-                    requestAnimationFrame(() => fitTextareaToContent(this, widget));
+                    requestAnimationFrame(() => syncNodeHeightToTextarea(this, widget));
                 }
             };
 
             const originalRemoved = this.onRemoved;
             this.onRemoved = function () {
-                textareaEl?.removeEventListener("input", fitOnInput);
+                textareaResizeObserver?.disconnect();
                 return originalRemoved?.apply(this, arguments);
             };
 
